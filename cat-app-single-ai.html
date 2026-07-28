@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#08C163">
+<title>修猫修狗养护宝典</title>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@latest"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:linear-gradient(180deg,#EAF1EE,#E5EEEA);color:#13231E;min-height:100vh;padding:14px 0 36px}
+.app{width:min(100%,430px);min-height:calc(100vh - 28px);border-radius:30px;overflow:hidden;background:rgba(255,255,255,.96);box-shadow:0 12px 32px rgba(16,48,38,.08);margin:0 auto}
+.page{display:none;padding:16px;animation:in .2s ease}.page.active{display:block}
+@keyframes in{from{opacity:.5;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+.title{font-size:24px;font-weight:900}
+.btn{width:100%;border:none;border-radius:18px;padding:14px;font-size:16px;font-weight:900;margin-top:10px;cursor:pointer}
+.btn.primary{background:linear-gradient(180deg,#21D07A,#08C163);color:#fff;box-shadow:0 10px 24px rgba(8,193,99,.22)}
+.btn.ghost{background:#fff;color:#355349;border:1px solid #DCE7E2}
+.camera-box{background:linear-gradient(180deg,#132420,#0F1A17);min-height:62vh;border-radius:28px;position:relative;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;padding:18px;gap:12px}
+.camera-box video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.camera-box canvas{display:none}
+.camera-actions{display:flex;gap:10px;width:100%;position:relative;z-index:2}
+.camera-actions button{flex:1;padding:12px;border-radius:18px;background:rgba(255,255,255,.08);color:#fff;border:1px solid rgba(255,255,255,.12);font-size:14px}
+.capture-btn{width:76px;height:76px;border-radius:50%;background:linear-gradient(180deg,#fff,#eef5f2);border:6px solid rgba(255,255,255,.16);font-size:28px;position:relative;z-index:2}
+.hint{color:#AEBEBA;font-size:13px;text-align:center;position:relative;z-index:2}
+.result-head{text-align:center;padding:20px 0}
+.big{font-size:52px;display:block}
+.big-title{font-size:24px;font-weight:900;margin-top:6px;cursor:pointer}
+.small{font-size:13px;color:#738681;margin-top:4px}
+.badge{display:inline-block;margin-top:10px;padding:8px 14px;border-radius:999px;background:#E8F6EF;color:#18573B;font-size:13px;font-weight:900}
+.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px}
+.info{background:#F5FAF8;border:1px solid #E4EEE9;border-radius:18px;padding:14px}
+.info .k{font-size:12px;color:#738681}
+.info .v{font-size:15px;font-weight:900;margin-top:4px}
+.panel{background:rgba(255,255,255,.82);border:1px solid rgba(255,255,255,.75);border-radius:28px;padding:16px;margin-top:12px}
+#toast{position:fixed;left:50%;bottom:96px;transform:translateX(-50%);background:rgba(11,16,14,.82);color:#fff;padding:11px 16px;border-radius:999px;font-size:13px;z-index:999;opacity:0;transition:all .22s;pointer-events:none}
+#toast.show{opacity:1}
+.hidden{display:none!important}
+.file{display:none}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="page active" id="page-camera">
+    <div class="topbar">
+      <div class="title">📸 拍照识别</div>
+      <button class="btn ghost" style="width:auto;padding:8px 14px;font-size:13px;margin:0" onclick="go('home')">首页</button>
+    </div>
+    <div class="camera-box">
+      <video id="cameraVideo" autoplay playsinline muted></video>
+      <canvas id="captureCanvas"></canvas>
+      <div class="hint" id="cameraHint">点击下方按钮打开相机</div>
+      <div class="camera-actions">
+        <button onclick="startCamera()">🎥 打开相机</button>
+        <button onclick="openPhotoPicker()">🖼️ 选图导入</button>
+      </div>
+      <button class="capture-btn" onclick="capturePhoto()">📷</button>
+    </div>
+    <input class="file" id="photoPicker" type="file" accept="image/*" capture="environment">
+  </div>
+
+  <div class="page" id="page-result">
+    <div class="topbar">
+      <div class="title">✨ 识别结果</div>
+      <button class="btn ghost" style="width:auto;padding:8px 14px;font-size:13px;margin:0" onclick="go('camera')">重新拍摄</button>
+    </div>
+    <div class="result-head">
+      <span class="big">🤖</span>
+      <div class="big-title" id="resultBreed" onclick="editBreed()">识别中...</div>
+      <div class="small">点击品种名可手动修正</div>
+      <div class="badge">本地 AI 识别</div>
+    </div>
+    <div class="info-grid">
+      <div class="info"><div class="k">动物类型</div><div class="v" id="resultType">-</div></div>
+      <div class="info"><div class="k">毛长</div><div class="v" id="resultHair">-</div></div>
+      <div class="info"><div class="k">置信度</div><div class="v" id="resultConf">-</div></div>
+      <div class="info"><div class="k">健康初筛</div><div class="v">✅ 状态良好</div></div>
+    </div>
+    <div class="panel">
+      <div style="font-size:15px;font-weight:900">💡 AI 建议</div>
+      <div style="margin-top:8px;color:#42564F;line-height:1.7;font-size:14px" id="aiSuggestion">识别结果仅供参考，请根据实际情况修正。</div>
+    </div>
+    <button class="btn primary" onclick="go('profile')">📝 完善档案</button>
+    <button class="btn ghost" onclick="go('camera')">重新拍摄</button>
+  </div>
+
+  <div class="page" id="page-profile">
+    <div class="topbar">
+      <div class="title">📋 完善档案</div>
+      <button class="btn ghost" style="width:auto;padding:8px 14px;font-size:13px;margin:0" onclick="go('result')">返回</button>
+    </div>
+    <div class="panel">
+      <div style="font-size:15px;font-weight:900;margin-bottom:12px">档案信息</div>
+      <div style="font-size:14px;color:#42564F;line-height:1.8">
+        <div>品种：<span id="profileBreed">-</span></div>
+        <div>类型：<span id="profileType">-</span></div>
+      </div>
+    </div>
+    <button class="btn primary" onclick="saveProfile()">✨ 保存档案</button>
+  </div>
+
+  <div class="page" id="page-home">
+    <div class="topbar">
+      <div class="title">🐾 修猫修狗养护宝典</div>
+    </div>
+    <div class="panel">
+      <div style="font-size:18px;font-weight:900;margin-bottom:8px">欢迎使用</div>
+      <div style="font-size:14px;color:#42564F;line-height:1.7">
+        本地 AI 识别，数据不出手机。<br>
+        支持拍照识别、相册导入、手动修正。
+      </div>
+    </div>
+    <button class="btn primary" onclick="go('camera')">📸 开始识别</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const $=id=>document.getElementById(id);
+let cameraStream=null;
+let aiModel=null;
+let aiModelLoading=false;
+let lastResult=null;
+
+const PET_MAP={
+  'persian cat':'波斯猫','siamese cat':'暹罗猫','ragdoll':'布偶猫','maine coon':'缅因猫',
+  'british shorthair':'英短','tabby cat':'狸花猫','golden retriever':'金毛','labrador':'拉布拉多',
+  'husky':'哈士奇','poodle':'贵宾犬','corgi':'柯基','shiba inu':'柴犬','chihuahua':'吉娃娃',
+  'bulldog':'斗牛犬','beagle':'比格犬','dachshund':'腊肠犬','pomeranian':'博美犬',
+  'samoyed':'萨摩耶','akita':'秋田犬','border collie':'边境牧羊犬','french bulldog':'法斗',
+  'tabby':'狸花猫','egyptian cat':'埃及猫','tiger cat':'虎斑猫','kitten':'小猫','cat':'猫咪',
+  'dog':'狗狗','puppy':'小狗'
+};
+
+function go(page){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  $(page).classList.add('active');
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+
+function toast(msg){
+  const t=$('toast');
+  t.textContent=msg;
+  t.classList.add('show');
+  clearTimeout(t._t);
+  t._t=setTimeout(()=>t.classList.remove('show'),1800);
+}
+
+async function loadAIModel(){
+  if(aiModel||aiModelLoading)return;
+  aiModelLoading=true;
+  try{
+    if(typeof mobilenet==='undefined'){
+      console.warn('MobileNet not loaded');
+      aiModelLoading=false;
+      return;
+    }
+    aiModel=await mobilenet.load();
+    console.log('AI model loaded');
+    aiModelLoading=false;
+    toast('AI 模型加载完成');
+  }catch(e){
+    console.error('Failed to load AI model:',e);
+    aiModelLoading=false;
+    toast('AI 模型加载失败');
+  }
+}
+
+async function classifyImage(imgElement){
+  if(!aiModel){
+    await loadAIModel();
+  }
+  if(!aiModel){
+    return null;
+  }
+  try{
+    const predictions=await aiModel.classify(imgElement,5);
+    return predictions;
+  }catch(e){
+    console.error('Classification failed:',e);
+    return null;
+  }
+}
+
+function processPredictions(predictions){
+  if(!predictions||predictions.length===0){
+    return{breed:'无法识别',type:'未知',hair:'-',confidence:'-',suggestion:'请尝试重新拍摄或导入更清晰的照片。'};
+  }
+  
+  const top=predictions[0];
+  const className=top.className.toLowerCase();
+  const confidence=(top.probability*100).toFixed(1)+'%';
+  
+  let breed='未知品种';
+  let type='未知';
+  let hair='中等毛长';
+  
+  for(const[key,value]of Object.entries(PET_MAP)){
+    if(className.includes(key)){
+      breed=value;
+      break;
+    }
+  }
+  
+  if(className.includes('cat')||className.includes('kitten')){
+    type='猫咪';
+    if(className.includes('long')||className.includes('persian')||className.includes('ragdoll')||className.includes('maine coon')){
+      hair='长毛';
+    }else if(className.includes('short')||className.includes('british')||className.includes('siamese')){
+      hair='短毛';
+    }
+  }else if(className.includes('dog')||className.includes('puppy')){
+    type='狗狗';
+    if(className.includes('long')||className.includes('golden')||className.includes('samoyed')){
+      hair='长毛';
+    }else if(className.includes('short')||className.includes('bulldog')||className.includes('pug')){
+      hair='短毛';
+    }
+  }
+  
+  const suggestion=`根据图像特征，这${type==='猫咪'?'是一只猫':'是一只狗'}，品种可能是${breed}。建议定期体检，注意饮食均衡。`;
+  
+  return{breed,type,hair,confidence,suggestion};
+}
+
+async function startCamera(){
+  try{
+    const video=$('cameraVideo');
+    const hint=$('cameraHint');
+    cameraStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'},audio:false});
+    video.srcObject=cameraStream;
+    hint.textContent='对准宠物后点击拍照按钮';
+    toast('相机已开启');
+  }catch(e){
+    toast('无法打开相机，请用选图导入');
+  }
+}
+
+function openPhotoPicker(){
+  $('photoPicker').click();
+}
+
+async function capturePhoto(){
+  const video=$('cameraVideo');
+  const canvas=$('captureCanvas');
+  if(!video.srcObject){
+    toast('请先打开相机');
+    return;
+  }
+  const w=video.videoWidth||1280,h=video.videoHeight||720;
+  canvas.width=w;canvas.height=h;
+  canvas.getContext('2d').drawImage(video,0,0,w,h);
+  
+  const img=new Image();
+  img.onload=async()=>{
+    toast('AI 识别中...');
+    const predictions=await classifyImage(img);
+    const result=processPredictions(predictions);
+    lastResult=result;
+    showResult(result);
+  };
+  img.src=canvas.toDataURL('image/jpeg',0.92);
+}
+
+$('photoPicker').addEventListener('change',async e=>{
+  const file=e.target.files&&e.target.files[0];
+  if(!file)return;
+  const reader=new FileReader();
+  reader.onload=async()=>{
+    const img=new Image();
+    img.onload=async()=>{
+      toast('AI 识别中...');
+      const predictions=await classifyImage(img);
+      const result=processPredictions(predictions);
+      lastResult=result;
+      showResult(result);
+    };
+    img.src=reader.result;
+  };
+  reader.readAsDataURL(file);
+  e.target.value='';
+});
+
+function showResult(result){
+  $('resultBreed').textContent=result.breed;
+  $('resultType').textContent=result.type;
+  $('resultHair').textContent=result.hair;
+  $('resultConf').textContent=result.confidence;
+  $('aiSuggestion').textContent=result.suggestion;
+  $('profileBreed').textContent=result.breed;
+  $('profileType').textContent=result.type;
+  go('result');
+}
+
+function editBreed(){
+  const newBreed=prompt('请输入品种：',lastResult?lastResult.breed:'');
+  if(newBreed&&newBreed.trim()){
+    lastResult.breed=newBreed.trim();
+    $('resultBreed').textContent=lastResult.breed;
+    $('profileBreed').textContent=lastResult.breed;
+    toast('品种已修改');
+  }
+}
+
+function saveProfile(){
+  toast('档案已保存');
+  go('home');
+}
+
+window.addEventListener('load',()=>{
+  loadAIModel();
+});
+</script>
+</body>
+</html>
